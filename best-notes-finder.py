@@ -2,15 +2,17 @@
 # -*- coding: utf-8 -*-
 
 from bs4 import BeautifulSoup
+import time
 import optparse
 import threading
 import Queue
 import urllib2
 
 
-START_ID = 277436060
-END_ID = 277436070
-NUM_WORKER = 3
+START_ID = 277400000
+END_ID = 277499999
+NUM_WORKER = 30
+FORBIDDEN_SLEEP_SECONDS = 90
 
 
 class ResultWriter(threading.Thread):
@@ -30,7 +32,7 @@ class ResultWriter(threading.Thread):
                     f.flush
                     self.result_queue.task_done()
         except Exception as e:
-            print '[Error] Exception - {}'.format(str(e))
+            print '\n[Error] Exception - {}'.format(str(e))
             exit(0)
 
 
@@ -42,9 +44,29 @@ class FinderWorker(threading.Thread):
         self.id_queue = id_queue
         self.result_queue = result_queue
 
+        self._stop = False
+
+        self._forbidden_alert = 0
+        self._forbidden_ids = []
+
+    def stop(self):
+        self._stop = True
+
+    def stopped(self):
+        return self._stop
+
+    def clear_forbidden_status(self):
+        self._forbidden_alert = 0
+        self._forbidden_ids[:] = []
+
     def run(self):
         while True:
             try:
+                # test if stop signal has been received
+                if self.stopped() == True:
+                    print '\n[Info] Thread is stopped according to notification.'
+                    break;
+
                 # get id from queue and wait for at most 3 seconds
                 id = self.id_queue.get(block = True, timeout = 3)
 
@@ -57,12 +79,28 @@ class FinderWorker(threading.Thread):
                 usock.close()
                 fav_num = self.getFavNumFromHTML(data)
                 self.result_queue.put('{0},{1}'.format(id, fav_num))
-                print '[+] {0} liked by {1} people'.format(id, fav_num)
+                print '\n[+] {0} liked by {1} people'.format(id, fav_num)
 
             except urllib2.HTTPError as e:
-                print '[-] {0} {1}'.format(id, str(e))
+                print '.',
+                
+                # handle requests forbidden
+                if 'Forbidden' in str(e):
+                    print '\n[-] {0} {1}'.format(id, str(e))
+                    self._forbidden_alert += 1
+                    self._forbidden_ids.append(id)
+                    if self._forbidden_alert >= 3:
+                        print '\n[ALERT] Forbidden Alert! Sleeping for {} seconds!'.format(FORBIDDEN_SLEEP_SECONDS)
+                        time.sleep(FORBIDDEN_SLEEP_SECONDS)
+                        # return forbidden ids to queue
+                        for id in self._forbidden_ids:
+                            self.id_queue.put(id)
+                        self.clear_forbidden_status()
+                else:
+                    self.clear_forbidden_status()
+
             except Queue.Empty:
-                print '[Info] Queue empty, worker stop.'
+                print '\n[Info] Queue empty, worker stop.'
                 break;
     
     def getFavNumFromHTML(self, html_string):
@@ -103,13 +141,22 @@ def main():
         worker.start()
 
     try:
-        # wait for the id_queue to be empty
-        id_queue.join()
+        # wait...
+        while True:
+            time.sleep(5)
+            for w in worker_list:
+                if w.isAlive() == True:
+                    break
+            else:
+                # all workers have finished, quit
+                break
 
-        print '[Info] Main(): Finished!'
+        print '\n[Info] Main(): Finished!'
+
     except KeyboardInterrupt:
-        print '[Interrupted] Exit()'
-        exit(0)
+        print '\n[Interrupted] Notifying workers to quit...'
+        for w in worker_list:
+            w.stop()
 
 
 if __name__ == '__main__':
