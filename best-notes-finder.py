@@ -12,22 +12,36 @@ import urllib2
 START_ID = 277400000
 END_ID = 277499999
 NUM_WORKER = 30
-FORBIDDEN_SLEEP_SECONDS = 90
+FORBIDDEN_ALERT_LEVEL = 5
+FORBIDDEN_SLEEP_SECONDS = 120
 
 
 class ResultWriter(threading.Thread):
     def __init__(self, filename, result_queue):
         threading.Thread.__init__(self)
-        self.daemon = True
+        self.daemon = False
+
+        self._stop = False
 
         self.filename = filename
         self.result_queue = result_queue
+
+    def stop(self):
+        self._stop = True
+
+    def stopped(self):
+        return self._stop
 
     def run(self):
         try:
             with open(self.filename, 'a') as f:
                 while True:
-                    result_line = self.result_queue.get()
+                    # test if stop signal has been received
+                    if self.stopped() == True:
+                        print '\n[Info] Writer thread is stopped according to notification.'
+                        break;
+
+                    result_line = self.result_queue.get(block = True, timeout = 5)
                     f.write("{0}\n".format(result_line))
                     f.flush
                     self.result_queue.task_done()
@@ -64,7 +78,7 @@ class FinderWorker(threading.Thread):
             try:
                 # test if stop signal has been received
                 if self.stopped() == True:
-                    print '\n[Info] Thread is stopped according to notification.'
+                    print '\n[Info] Worker thread is stopped according to notification.'
                     break;
 
                 # get id from queue and wait for at most 3 seconds
@@ -89,12 +103,15 @@ class FinderWorker(threading.Thread):
                     print '\n[-] {0} {1}'.format(id, str(e))
                     self._forbidden_alert += 1
                     self._forbidden_ids.append(id)
-                    if self._forbidden_alert >= 3:
+                    if self._forbidden_alert >= FORBIDDEN_ALERT_LEVEL:
                         print '\n[ALERT] Forbidden Alert! Sleeping for {} seconds!'.format(FORBIDDEN_SLEEP_SECONDS)
                         time.sleep(FORBIDDEN_SLEEP_SECONDS)
+                        
                         # return forbidden ids to queue
                         for id in self._forbidden_ids:
                             self.id_queue.put(id)
+
+                        # clear
                         self.clear_forbidden_status()
                 else:
                     self.clear_forbidden_status()
@@ -154,9 +171,10 @@ def main():
         print '\n[Info] Main(): Finished!'
 
     except KeyboardInterrupt:
-        print '\n[Interrupted] Notifying workers to quit...'
+        print '\n[Interrupted] Notifying workers and writer to quit...'
         for w in worker_list:
             w.stop()
+        writer.stop()
 
 
 if __name__ == '__main__':
