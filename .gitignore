@@ -36,3 +36,9 @@ nosetests.xml
 
 # virtualenv
 venv
+
+# test files
+/test*.py
+
+# result files
+/result.txt
