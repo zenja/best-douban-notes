@@ -11,7 +11,7 @@ import urllib2
 
 START_ID = 277400000
 END_ID = 277499999
-NUM_WORKER = 30
+NUM_WORKER = 20
 FORBIDDEN_ALERT_LEVEL = 5
 FORBIDDEN_SLEEP_SECONDS = 120
 
@@ -41,11 +41,15 @@ class ResultWriter(threading.Thread):
                     if self.stopped() == True:
                         print '\n[Info] Writer thread is stopped according to notification.'
                         break;
+                    
+                    try:
+                        result_line = self.result_queue.get(block = True, timeout = 5)
+                        f.write("{0}\n".format(result_line))
+                        f.flush
+                        self.result_queue.task_done()
+                    except Exception:
+                        pass
 
-                    result_line = self.result_queue.get(block = True, timeout = 5)
-                    f.write("{0}\n".format(result_line))
-                    f.flush
-                    self.result_queue.task_done()
         except Exception as e:
             print '\n[Error] Exception - {}'.format(str(e))
             exit(0)
