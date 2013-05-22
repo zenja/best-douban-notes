@@ -34,7 +34,8 @@ class ResultWriter(threading.Thread):
 
     def run(self):
         try:
-            with open(self.filename, 'a') as f:
+            # open to write with line-buffer (1)
+            with open(self.filename, 'a', 1) as f:
                 while True:
                     # test if stop signal has been received
                     if self.stopped() == True:
